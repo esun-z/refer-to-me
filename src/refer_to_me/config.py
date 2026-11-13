@@ -80,7 +80,7 @@ class LayaConfig(BaseModel):
     device: Literal["auto", "cuda", "cpu"] = "auto"
     # Confidence threshold on max(p, 1-p) in [0.5, 1]. 0.5 = fully trust Laya
     # (LLM never fires); raise it to route low-confidence messages to the LLM.
-    threshold: float = Field(0.5, ge=0.0, le=1.0)
+    threshold: float = Field(0.6, ge=0.0, le=1.0)
 
 
 class LlmConfig(BaseModel):
