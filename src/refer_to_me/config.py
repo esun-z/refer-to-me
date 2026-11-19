@@ -52,6 +52,22 @@ class KeywordRule(BaseModel):
 
 
 class TopicConfig(BaseModel):
+    """One ordered entry in the matching cascade.
+
+    Topics are evaluated front-to-back; the first match short-circuits the
+    rest. Per topic: keywords always apply; ``laya_enabled`` adds the Laya
+    question; ``llm_enabled`` (requires Laya) adds the LLM fallback for
+    low-confidence results.
+
+    Two confidence thresholds on max(p, 1-p), both in [0.5, 1]:
+    - ``match_threshold``: confidence >= it -> Laya's yes/no is final
+      (yes -> match, no -> skip to the next topic).
+    - ``llm_threshold``: confidence < it -> consult the LLM (if enabled).
+    The band [llm_threshold, match_threshold) is a pass-through: the topic
+    is neither matched nor sent to the LLM; evaluation moves on. Equal
+    thresholds (the 0.6 default) reproduce the single-threshold behavior.
+    """
+
     model_config = ConfigDict(frozen=True)
 
     id: str = Field(default_factory=lambda: uuid.uuid4().hex)
@@ -59,6 +75,10 @@ class TopicConfig(BaseModel):
     description: str = ""
     enabled: bool = True
     keywords: tuple[KeywordRule, ...] = ()
+    laya_enabled: bool = True
+    llm_enabled: bool = False
+    match_threshold: float = Field(0.6, ge=0.5, le=1.0)
+    llm_threshold: float = Field(0.6, ge=0.5, le=1.0)
     laya_instructions: str = ""
     laya_criteria_true: str = ""
     laya_criteria_false: str = ""
@@ -71,6 +91,14 @@ class TopicConfig(BaseModel):
             raise ValueError("topic name must not be empty")
         return v
 
+    @model_validator(mode="after")
+    def _switch_and_threshold_consistency(self) -> TopicConfig:
+        if self.llm_enabled and not self.laya_enabled:
+            raise ValueError("topic llm_enabled requires laya_enabled")
+        if self.llm_threshold > self.match_threshold:
+            raise ValueError("topic llm_threshold must not exceed match_threshold")
+        return self
+
 
 class LayaConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -78,15 +106,13 @@ class LayaConfig(BaseModel):
     mode: Literal["router", "english", "multilingual"] = "router"
     local_path: str = ""  # local checkpoint dir; only used in english/multilingual modes
     device: Literal["auto", "cuda", "cpu"] = "auto"
-    # Confidence threshold on max(p, 1-p) in [0.5, 1]. 0.5 = fully trust Laya
-    # (LLM never fires); raise it to route low-confidence messages to the LLM.
-    threshold: float = Field(0.6, ge=0.0, le=1.0)
 
 
 class LlmConfig(BaseModel):
+    """Global LLM connection settings; per-topic ``llm_enabled`` decides usage."""
+
     model_config = ConfigDict(frozen=True)
 
-    enabled: bool = False
     base_url: str = ""
     api_key: str = ""
     model: str = ""
@@ -94,11 +120,8 @@ class LlmConfig(BaseModel):
     timeout_s: float = Field(30.0, gt=0)
     max_retries: int = Field(2, ge=0, le=5)
 
-    @model_validator(mode="after")
-    def _enabled_requires_fields(self) -> LlmConfig:
-        if self.enabled and (not self.base_url.strip() or not self.model.strip()):
-            raise ValueError("LLM enabled requires base_url and model")
-        return self
+    def is_configured(self) -> bool:
+        return bool(self.base_url.strip() and self.model.strip())
 
 
 class WebhookConfig(BaseModel):
@@ -148,7 +171,7 @@ class UnclassifiedConfig(BaseModel):
 class AppConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    version: int = 1
+    version: int = 2
     language: Literal["auto", "en", "zh_CN"] = "auto"
     topics: tuple[TopicConfig, ...] = ()
     laya: LayaConfig = LayaConfig()
@@ -160,6 +183,40 @@ class AppConfig(BaseModel):
     data_dir: str | None = None
     sound_file: str = ""
     start_minimized: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_v1_global_threshold(cls, data):
+        """v1 kept one global ``laya.threshold``; v2 thresholds are per topic.
+
+        Carry the legacy value onto topics that do not specify their own, so
+        tuned configurations survive the upgrade. Values below 0.5 (allowed
+        by v1) are clamped into the v2 range.
+        """
+        if not isinstance(data, dict):
+            return data
+        laya = data.get("laya")
+        legacy = laya.get("threshold") if isinstance(laya, dict) else None
+        if legacy is None:
+            return data
+        try:
+            legacy = min(max(float(legacy), 0.5), 1.0)
+        except (TypeError, ValueError):
+            return data
+        topics = data.get("topics")
+        if not isinstance(topics, list):
+            return data
+        migrated = [
+            {
+                **t,
+                "match_threshold": t.get("match_threshold", legacy),
+                "llm_threshold": t.get("llm_threshold", legacy),
+            }
+            if isinstance(t, dict)
+            else t
+            for t in topics
+        ]
+        return {**data, "topics": migrated}
 
     @model_validator(mode="after")
     def _unique_topic_ids(self) -> AppConfig:

@@ -35,9 +35,8 @@ TRANSLATIONS = {
     "Received": "接收",
     "Keyword": "关键词",
     "Laya": "Laya",
-    "Laya none": "Laya 判无",
     "LLM": "LLM",
-    "LLM none": "LLM 判无",
+    "No match": "无匹配",
     "Unclassified": "无法分类",
     "No topics": "无主题",
     "Alerts": "提醒",
@@ -69,21 +68,23 @@ TRANSLATIONS = {
     "Mode": "模式",
     "Local model": "本地模型",
     "Device": "设备",
-    "Confidence threshold": "置信度阈值",
     "router: auto-routes per message language (recommended for mixed Chinese/English). "
     "english: English-only checkpoint. multilingual: 100+ languages. "
     "Local model applies to english/multilingual modes.": (
         "router：按消息语言自动路由（中英混合推荐）。english：仅英语检查点。"
         "multilingual：支持 100+ 语言。本地模型仅用于 english/multilingual 模式。"
     ),
-    "The threshold applies to Laya confidence = max(p, 1-p), which lies in [0.5, 1]. "
-    "At 0.5 the app fully trusts Laya (the LLM never fires). Raise it (e.g. 0.8) to "
-    "route low-confidence messages to the LLM; confident 'no' never alerts.": (
-        "阈值作用于 Laya 置信度 max(p, 1-p)，取值范围 [0.5, 1]。"
-        "0.5 表示完全信任 Laya（不会调用 LLM）；调高（如 0.8）则把低置信度的消息交给 LLM 判断；"
-        "模型确定无关时不会提醒。"
+    "Matching order, the Laya/LLM switches and the confidence thresholds are "
+    "configured per topic on the Topics page.": (
+        "匹配顺序、Laya/LLM 开关与置信度阈值均在「主题」页按主题配置。"
     ),
     "LLM fallback (OpenAI-compatible)": "LLM 兜底（OpenAI 兼容接口）",
+    "Connection settings are global. Whether the LLM is consulted for a topic "
+    "is decided by that topic's 'Use LLM when uncertain' switch on the Topics "
+    "page (requires Laya enabled for the topic).": (
+        "连接设置为全局共享。是否对某个主题调用 LLM，由「主题」页该主题的"
+        "「不确定时使用 LLM」开关决定（需先为该主题启用 Laya）。"
+    ),
     "Test connection": "测试连接",
     "Enabled": "启用",
     "Base URL": "接口地址",
@@ -134,6 +135,11 @@ TRANSLATIONS = {
     # TopicsTab
     "Add": "添加",
     "Delete": "删除",
+    "Up": "上移",
+    "Down": "下移",
+    "Top-to-bottom priority: the first matched topic wins.": (
+        "自上而下优先匹配：第一个命中的主题生效。"
+    ),
     "Name": "名称",
     "Description": "描述",
     "Keywords short-circuit the pipeline (literal substring or regex). "
@@ -151,10 +157,24 @@ TRANSLATIONS = {
     "Add row": "添加行",
     "Remove row": "删除行",
     "Generate defaults": "生成默认值",
+    "Use Laya model": "使用 Laya 模型",
+    "Use LLM when uncertain": "不确定时使用 LLM",
+    "Match confidence ≥": "匹配置信度 ≥",
+    "LLM confidence <": "LLM 置信度 <",
+    "Confidence = max(p, 1-p), in [0.5, 1]. At or above the match threshold "
+    "Laya's yes/no is final (yes alerts, no skips). Below the LLM threshold the "
+    "LLM decides, if enabled for this topic. In between, the topic is skipped "
+    "and the next one is evaluated. With Laya off this entry matches by "
+    "keywords/regex only — useful as a front filter.": (
+        "置信度 = max(p, 1-p)，取值 [0.5, 1]。达到匹配置信度时以 Laya 的是/否为准"
+        "（是则提醒，否则跳过）；低于 LLM 置信度时交由 LLM 判断（需为本主题启用）；"
+        "两者之间则跳过本主题、继续判断下一个。关闭 Laya 后本条目仅按关键词/正则匹配"
+        "——可用作前置过滤器。"
+    ),
     "Laya question": "Laya 问句",
     "True criterion": "True 判据",
     "False criterion": "False 判据",
-    "Alert channels (none checked = silent)": "提醒渠道（全不选 = 无提示）",
+    "Alert channels (none checked = silent filter)": "提醒渠道（全不选 = 静默过滤器）",
     "Note: Windows Toast plays its own sound; combining it with 'Play sound' rings twice.": (
         "注意：Windows Toast 自带提示音，与「播放提示音」同时启用会响两声。"
     ),

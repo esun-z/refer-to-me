@@ -124,8 +124,8 @@ def test_force_reload_recovers(fake_laya, tmp_path):
 def test_reload_if_needed(fake_laya):
     engine = LayaEngine(LayaConfig(mode="multilingual"))
     engine.ensure_loaded()
-    engine.reload_if_needed(LayaConfig(mode="multilingual", threshold=0.9))
-    assert len(fake_laya["load"]) == 1  # threshold change: no reload
+    engine.reload_if_needed(LayaConfig(mode="multilingual"))
+    assert len(fake_laya["load"]) == 1  # unchanged config: no reload
     engine.reload_if_needed(LayaConfig(mode="multilingual", device="cpu"))
     assert len(fake_laya["load"]) == 2  # device change: reload
     assert fake_laya["load"][-1] == ("ml", "cpu")

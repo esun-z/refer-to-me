@@ -33,9 +33,8 @@ STAT_KEYS = (
     "received",
     "keyword",
     "laya",
-    "laya_none",
     "llm",
-    "llm_none",
+    "no_match",
     "unclassified",
     "no_topics",
     "alerts",
@@ -147,11 +146,14 @@ class AppRuntime:
 
     # ------------------------------------------------------------------ worker
     def _run_worker(self) -> None:
-        # Eager load at startup so the first message is not delayed.
-        try:
-            self._engine.ensure_loaded()
-        except Exception as exc:  # noqa: BLE001 - ERROR state; manual reload only
-            self._signals.log.emit("error", f"Model load failed: {exc}")
+        # Eager load at startup so the first message is not delayed — but only
+        # when some enabled topic actually uses Laya (keyword-only setups never
+        # need the model).
+        if any(t.laya_enabled for t in self._worker_cfg.enabled_topics()):
+            try:
+                self._engine.ensure_loaded()
+            except Exception as exc:  # noqa: BLE001 - ERROR state; manual reload only
+                self._signals.log.emit("error", f"Model load failed: {exc}")
         while True:
             item = self._queue.get()
             match item:
@@ -232,7 +234,25 @@ class AppRuntime:
                 self._signals.log.emit("alert", "sent via: " + ", ".join(ok_channels))
                 self._signals.stats.emit(dict(self._stats))
             else:
-                self._signals.log.emit("alert", "no channel succeeded (or none configured)")
+                self._log_silent_or_failed(req)
+
+    def _log_silent_or_failed(self, req) -> None:
+        """Distinguish a filter entry (no channels by design) from a failure."""
+        if req.kind == "topics":
+            configured = {ch for t in req.topics for ch in t.channels}
+            subject = " ".join(f"「{t.name}」" for t in req.topics)
+            silent_text = f"silent: {subject} matched but no alert channels configured (filter)"
+        else:
+            configured = set(req.cfg.unclassified.channels)
+            subject = "unclassified message"
+            silent_text = "silent: unclassified message; no alert channels configured"
+        if not configured:
+            self._signals.log.emit("alert", silent_text)
+        else:
+            tried = ", ".join(sorted(ch.value for ch in configured))
+            self._signals.log.emit(
+                "error", f"alert failed for {subject}: no channel succeeded (tried: {tried})"
+            )
 
     # ------------------------------------------------------------------ connectors
     def _start_connectors(self) -> None:

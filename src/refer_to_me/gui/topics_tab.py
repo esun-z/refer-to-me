@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QHeaderView,
+    QListWidgetItem,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -35,6 +36,7 @@ from refer_to_me.core.questions import (
     default_criteria_true,
     default_instructions,
 )
+from refer_to_me.gui.widgets import DoubleSpinBox
 
 CHANNEL_LABELS = {
     AlertChannel.SOUND: QT_TRANSLATE_NOOP("TopicsTab", "Play sound"),
@@ -70,6 +72,17 @@ class TopicsTab(QWidget):
         buttons.addWidget(self.add_btn)
         buttons.addWidget(self.del_btn)
         left.addLayout(buttons)
+        order_buttons = QHBoxLayout()
+        self.up_btn = PushButton(self.tr("Up"), left_panel)
+        self.down_btn = PushButton(self.tr("Down"), left_panel)
+        order_buttons.addWidget(self.up_btn)
+        order_buttons.addWidget(self.down_btn)
+        left.addLayout(order_buttons)
+        order_hint = CaptionLabel(
+            self.tr("Top-to-bottom priority: the first matched topic wins."), left_panel
+        )
+        order_hint.setWordWrap(True)
+        left.addWidget(order_hint)
         root.addWidget(left_panel)
 
         # Right: editor form in a scroll area
@@ -129,19 +142,45 @@ class TopicsTab(QWidget):
 
         laya_card = CardWidget(container)
         laya_form = QFormLayout(laya_card)
+        self.laya_switch = SwitchButton(laya_card)
+        self.llm_switch = SwitchButton(laya_card)
+        self.match_threshold_spin = DoubleSpinBox(laya_card)
+        self.match_threshold_spin.setRange(0.5, 1.0)
+        self.match_threshold_spin.setSingleStep(0.05)
+        self.match_threshold_spin.setDecimals(2)
+        self.llm_threshold_spin = DoubleSpinBox(laya_card)
+        self.llm_threshold_spin.setRange(0.5, 1.0)
+        self.llm_threshold_spin.setSingleStep(0.05)
+        self.llm_threshold_spin.setDecimals(2)
         self.instructions_edit = LineEdit(laya_card)
         self.criteria_true_edit = LineEdit(laya_card)
         self.criteria_false_edit = LineEdit(laya_card)
         self.gen_defaults_btn = PushButton(self.tr("Generate defaults"), laya_card)
+        laya_form.addRow(self.tr("Use Laya model"), self.laya_switch)
+        laya_form.addRow(self.tr("Use LLM when uncertain"), self.llm_switch)
+        laya_form.addRow(self.tr("Match confidence ≥"), self.match_threshold_spin)
+        laya_form.addRow(self.tr("LLM confidence <"), self.llm_threshold_spin)
         laya_form.addRow(self.tr("Laya question"), self.instructions_edit)
         laya_form.addRow(self.tr("True criterion"), self.criteria_true_edit)
         laya_form.addRow(self.tr("False criterion"), self.criteria_false_edit)
         laya_form.addRow("", self.gen_defaults_btn)
+        band_hint = CaptionLabel(
+            self.tr(
+                "Confidence = max(p, 1-p), in [0.5, 1]. At or above the match threshold "
+                "Laya's yes/no is final (yes alerts, no skips). Below the LLM threshold the "
+                "LLM decides, if enabled for this topic. In between, the topic is skipped "
+                "and the next one is evaluated. With Laya off this entry matches by "
+                "keywords/regex only — useful as a front filter."
+            ),
+            laya_card,
+        )
+        band_hint.setWordWrap(True)
+        laya_form.addRow(band_hint)
         self.form_layout.addWidget(laya_card)
 
         channel_card = CardWidget(container)
         channel_layout = QVBoxLayout(channel_card)
-        channel_layout.addWidget(BodyLabel(self.tr("Alert channels (none checked = silent)"), channel_card))
+        channel_layout.addWidget(BodyLabel(self.tr("Alert channels (none checked = silent filter)"), channel_card))
         self.channel_boxes: dict[AlertChannel, CheckBox] = {}
         for channel, label in CHANNEL_LABELS.items():
             box = CheckBox(self.tr(label), channel_card)
@@ -164,10 +203,16 @@ class TopicsTab(QWidget):
         # Wiring
         self.add_btn.clicked.connect(self._add_topic)
         self.del_btn.clicked.connect(self._delete_topic)
+        self.up_btn.clicked.connect(lambda: self._move_topic(-1))
+        self.down_btn.clicked.connect(lambda: self._move_topic(1))
         self.list.currentItemChanged.connect(self._on_select)
         self.name_edit.textChanged.connect(lambda t: self._update_topic(name=t))
         self.enabled_switch.checkedChanged.connect(lambda v: self._update_topic(enabled=v))
         self.desc_edit.textChanged.connect(lambda: self._update_topic(description=self.desc_edit.toPlainText()))
+        self.laya_switch.checkedChanged.connect(self._on_laya_enabled)
+        self.llm_switch.checkedChanged.connect(lambda v: self._update_topic(llm_enabled=v))
+        self.match_threshold_spin.valueChanged.connect(self._on_match_threshold)
+        self.llm_threshold_spin.valueChanged.connect(self._on_llm_threshold)
         self.instructions_edit.textChanged.connect(lambda t: self._update_topic(laya_instructions=t))
         self.criteria_true_edit.textChanged.connect(lambda t: self._update_topic(laya_criteria_true=t))
         self.criteria_false_edit.textChanged.connect(lambda t: self._update_topic(laya_criteria_false=t))
@@ -184,10 +229,8 @@ class TopicsTab(QWidget):
     def refresh(self, select_id: str | None = None) -> None:
         self._loading = True
         self.list.clear()
-        for topic in self.win.draft.topics:
-            from PySide6.QtWidgets import QListWidgetItem
-
-            item = QListWidgetItem(self._item_text(topic))
+        for i, topic in enumerate(self.win.draft.topics):
+            item = QListWidgetItem(self._item_text(topic, i))
             item.setData(Qt.ItemDataRole.UserRole, topic.id)
             self.list.addItem(item)
             if select_id == topic.id or (select_id is None and topic.id == self._current_id):
@@ -200,8 +243,10 @@ class TopicsTab(QWidget):
             self._current_id = None
             self.form_container.setEnabled(False)
 
-    def _item_text(self, topic: TopicConfig) -> str:
-        return topic.name + ("" if topic.enabled else "  " + self.tr("(disabled)"))
+    def _item_text(self, topic: TopicConfig, index: int) -> str:
+        return f"{index + 1}. {topic.name}" + (
+            "" if topic.enabled else "  " + self.tr("(disabled)")
+        )
 
     def _on_select(self, current, previous) -> None:
         if self._loading or current is None:
@@ -218,6 +263,10 @@ class TopicsTab(QWidget):
         self.name_edit.setText(topic.name)
         self.enabled_switch.setChecked(topic.enabled)
         self.desc_edit.setPlainText(topic.description)
+        self.laya_switch.setChecked(topic.laya_enabled)
+        self.llm_switch.setChecked(topic.llm_enabled)
+        self.match_threshold_spin.setValue(topic.match_threshold)
+        self.llm_threshold_spin.setValue(topic.llm_threshold)
         self.instructions_edit.setText(topic.laya_instructions)
         self.criteria_true_edit.setText(topic.laya_criteria_true)
         self.criteria_false_edit.setText(topic.laya_criteria_false)
@@ -226,9 +275,13 @@ class TopicsTab(QWidget):
             self._add_kw_row(rule.pattern, rule.is_regex)
         for channel, box in self.channel_boxes.items():
             box.setChecked(channel in topic.channels)
+        self._update_laya_controls_state(topic.laya_enabled)
         self._loading = False
 
     # ------------------------------------------------------------------ edits
+    def _current_topic(self) -> TopicConfig | None:
+        return next((t for t in self.win.draft.topics if t.id == self._current_id), None)
+
     def _update_topic(self, **kwargs) -> None:
         if self._loading or self._current_id is None:
             return
@@ -238,9 +291,61 @@ class TopicsTab(QWidget):
                 topics[i] = topic.model_copy(update=kwargs)
                 item = self.list.currentItem()
                 if item is not None:
-                    item.setText(self._item_text(topics[i]))
+                    item.setText(self._item_text(topics[i], i))
                 break
         self.win.draft = self.win.draft.model_copy(update={"topics": tuple(topics)})
+
+    def _move_topic(self, delta: int) -> None:
+        if self._current_id is None:
+            return
+        topics = list(self.win.draft.topics)
+        idx = next((i for i, t in enumerate(topics) if t.id == self._current_id), None)
+        if idx is None or not 0 <= idx + delta < len(topics):
+            return
+        j = idx + delta
+        topics[idx], topics[j] = topics[j], topics[idx]
+        self.win.draft = self.win.draft.model_copy(update={"topics": tuple(topics)})
+        self.refresh(select_id=self._current_id)
+
+    def _on_laya_enabled(self, v: bool) -> None:
+        if self._loading or self._current_id is None:
+            return
+        updates = {"laya_enabled": v}
+        if not v:
+            # LLM requires Laya: turn it off together with the model switch.
+            updates["llm_enabled"] = False
+            self.llm_switch.setChecked(False)
+        self._update_topic(**updates)
+        self._update_laya_controls_state(v)
+
+    def _update_laya_controls_state(self, laya_enabled: bool) -> None:
+        for widget in (
+            self.llm_switch,
+            self.match_threshold_spin,
+            self.llm_threshold_spin,
+            self.instructions_edit,
+            self.criteria_true_edit,
+            self.criteria_false_edit,
+            self.gen_defaults_btn,
+        ):
+            widget.setEnabled(laya_enabled)
+
+    def _on_match_threshold(self, v: float) -> None:
+        if self._loading or self._current_id is None:
+            return
+        topic = self._current_topic()
+        if topic is not None and topic.llm_threshold > v:
+            self.llm_threshold_spin.setValue(v)  # keep llm_threshold <= match_threshold
+        self._update_topic(match_threshold=v)
+
+    def _on_llm_threshold(self, v: float) -> None:
+        if self._loading or self._current_id is None:
+            return
+        topic = self._current_topic()
+        if topic is not None and v > topic.match_threshold:
+            v = topic.match_threshold
+            self.llm_threshold_spin.setValue(v)
+        self._update_topic(llm_threshold=v)
 
     def _add_topic(self) -> None:
         topic = TopicConfig(name=self.tr("New topic"))

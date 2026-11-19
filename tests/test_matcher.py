@@ -1,7 +1,7 @@
 """Stage 1 matcher semantics."""
 
 from refer_to_me.config import KeywordRule, TopicConfig
-from refer_to_me.core.matcher import match_keywords
+from refer_to_me.core.matcher import match_keywords, topic_keyword_hit
 
 
 def topic(name: str, rules: list[KeywordRule], enabled: bool = True) -> TopicConfig:
@@ -45,3 +45,16 @@ def test_disabled_topic_skipped():
 def test_no_keywords_no_match():
     t = topic("empty", [])
     assert match_keywords("anything", [t]) == []
+
+
+def test_single_topic_hit():
+    t = topic("月例会", [KeywordRule(pattern="月例会")])
+    assert topic_keyword_hit("下周月例会改到周四", t) is True
+    assert topic_keyword_hit("今天天气不错", t) is False
+    assert topic_keyword_hit("anything", topic("empty", [])) is False
+
+
+def test_single_topic_regex():
+    t = topic("报销", [KeywordRule(pattern=r"报销.{0,6}(政策|标准)", is_regex=True)])
+    assert topic_keyword_hit("年会旅游报销政策什么时候发布", t) is True
+    assert topic_keyword_hit("报销一下打车费", t) is False

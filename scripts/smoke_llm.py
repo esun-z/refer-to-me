@@ -29,7 +29,6 @@ def main() -> int:
     args = parser.parse_args()
 
     cfg = LlmConfig(
-        enabled=True,
         base_url=args.base_url,
         api_key=args.api_key,
         model=args.model,

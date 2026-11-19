@@ -108,15 +108,9 @@ class SettingsTab(QWidget):
         self.laya_device.currentIndexChanged.connect(
             lambda i: self._update("laya", device=self.laya_device.itemText(i))
         )
-        self.laya_threshold = DoubleSpinBox(parent)
-        self.laya_threshold.setRange(0.5, 1.0)
-        self.laya_threshold.setSingleStep(0.05)
-        self.laya_threshold.setDecimals(2)
-        self.laya_threshold.valueChanged.connect(lambda v: self._update("laya", threshold=v))
         form.addRow(self.tr("Mode"), self.laya_mode)
         form.addRow(self.tr("Local model"), path_row)
         form.addRow(self.tr("Device"), self.laya_device)
-        form.addRow(self.tr("Confidence threshold"), self.laya_threshold)
         hint = BodyLabel(
             self.tr(
                 "router: auto-routes per message language (recommended for mixed Chinese/English). "
@@ -127,21 +121,18 @@ class SettingsTab(QWidget):
         )
         hint.setWordWrap(True)
         form.addRow(hint)
-        threshold_hint = BodyLabel(
+        per_topic_hint = BodyLabel(
             self.tr(
-                "The threshold applies to Laya confidence = max(p, 1-p), which lies in [0.5, 1]. "
-                "At 0.5 the app fully trusts Laya (the LLM never fires). Raise it (e.g. 0.8) to "
-                "route low-confidence messages to the LLM; confident 'no' never alerts."
+                "Matching order, the Laya/LLM switches and the confidence thresholds are "
+                "configured per topic on the Topics page."
             ),
             parent,
         )
-        threshold_hint.setWordWrap(True)
-        form.addRow(threshold_hint)
+        per_topic_hint.setWordWrap(True)
+        form.addRow(per_topic_hint)
 
     def _build_llm_card(self, parent) -> None:
         form = self._card(parent, self.tr("LLM fallback (OpenAI-compatible)"))
-        self.llm_enabled = SwitchButton(parent)
-        self.llm_enabled.checkedChanged.connect(lambda v: self._update("llm", enabled=v))
         self.llm_base_url = LineEdit(parent)
         self.llm_base_url.setPlaceholderText("http://127.0.0.1:8080/v1")
         self.llm_base_url.textChanged.connect(lambda t: self._update("llm", base_url=t))
@@ -162,7 +153,6 @@ class SettingsTab(QWidget):
         self.llm_retries.valueChanged.connect(lambda v: self._update("llm", max_retries=v))
         self.llm_test_btn = PushButton(self.tr("Test connection"), parent)
         self.llm_test_btn.clicked.connect(self.win.runtime.test_llm)
-        form.addRow(self.tr("Enabled"), self.llm_enabled)
         form.addRow(self.tr("Base URL"), self.llm_base_url)
         form.addRow(self.tr("API key"), self.llm_api_key)
         form.addRow(self.tr("Model"), self.llm_model)
@@ -170,6 +160,16 @@ class SettingsTab(QWidget):
         form.addRow(self.tr("Timeout (s)"), self.llm_timeout)
         form.addRow(self.tr("Max retries"), self.llm_retries)
         form.addRow("", self.llm_test_btn)
+        llm_hint = BodyLabel(
+            self.tr(
+                "Connection settings are global. Whether the LLM is consulted for a topic "
+                "is decided by that topic's 'Use LLM when uncertain' switch on the Topics "
+                "page (requires Laya enabled for the topic)."
+            ),
+            parent,
+        )
+        llm_hint.setWordWrap(True)
+        form.addRow(llm_hint)
 
     def _build_webhook_card(self, parent) -> None:
         form = self._card(parent, self.tr("Webhook input"))
@@ -290,9 +290,7 @@ class SettingsTab(QWidget):
         self.laya_mode.setCurrentText(cfg.laya.mode)
         self.laya_local_path.setText(cfg.laya.local_path)
         self.laya_device.setCurrentText(cfg.laya.device)
-        self.laya_threshold.setValue(cfg.laya.threshold)
         self.laya_local_path.setEnabled(cfg.laya.mode != "router")
-        self.llm_enabled.setChecked(cfg.llm.enabled)
         self.llm_base_url.setText(cfg.llm.base_url)
         self.llm_api_key.setText(cfg.llm.api_key)
         self.llm_model.setText(cfg.llm.model)

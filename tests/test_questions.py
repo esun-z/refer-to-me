@@ -49,3 +49,11 @@ def test_only_three_keys():
 
 def test_empty_topics():
     assert build_questions([]) == {}
+
+
+def test_laya_disabled_topic_excluded():
+    topics = [
+        TopicConfig(id="t1", name="关键词-only", laya_enabled=False),
+        TopicConfig(id="t2", name="月例会"),
+    ]
+    assert set(build_questions(topics)) == {"t2"}

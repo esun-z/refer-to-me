@@ -26,6 +26,8 @@ def default_criteria_false(name: str) -> str:
 def build_questions(topics: Sequence[TopicConfig]) -> dict:
     questions: dict = {}
     for topic in topics:
+        if not topic.laya_enabled:
+            continue
         questions[topic.id] = {
             "type": "noul",
             "instructions": topic.laya_instructions.strip()

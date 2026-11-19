@@ -12,12 +12,11 @@ from typing import Literal
 class FinalStage(str, Enum):
     """Terminal stage of the classification pipeline for one message."""
 
-    KEYWORD = "keyword"
-    LAYA = "laya"
-    LAYA_NONE = "laya_none"  # confidently unrelated to every topic
-    LLM = "llm"
-    LLM_NONE = "llm_none"
-    UNCLASSIFIED = "unclassified"
+    KEYWORD = "keyword"  # matched by keyword/regex
+    LAYA = "laya"  # matched by a confident Laya "yes"
+    LLM = "llm"  # matched by the LLM fallback
+    NO_MATCH = "no_match"  # every topic decisively skipped; no alert
+    UNCLASSIFIED = "unclassified"  # some topic unresolved (uncertain/engine failure)
     NO_TOPICS = "no_topics"
 
 
